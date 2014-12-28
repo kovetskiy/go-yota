@@ -12,7 +12,7 @@ import (
 	"strconv"
 )
 
-type Yota struct {
+type Client struct {
 	login    string
 	password string
 	uid      string
@@ -43,7 +43,7 @@ const (
 	urlChangeTariff = "https://my.yota.ru/selfcare/devices/changeOffer"
 )
 
-func New(login, password string) *Yota {
+func NewClient(login, password string) *Client {
 	cookies, _ := cookiejar.New(nil)
 
 	http := &http.Client{
@@ -53,7 +53,7 @@ func New(login, password string) *Yota {
 		Jar: cookies,
 	}
 
-	yota := &Yota{
+	yota := &Client{
 		login:    login,
 		password: password,
 		http:     http,
@@ -62,7 +62,7 @@ func New(login, password string) *Yota {
 	return yota
 }
 
-func (yota *Yota) Login() error {
+func (yota *Client) Login() error {
 	if yota.uid == "" {
 		uid, err := yota.getUid()
 		if err != nil {
@@ -99,7 +99,7 @@ func (yota *Yota) Login() error {
 	return nil
 }
 
-func (yota *Yota) GetTariffs() ([]Tariff, error) {
+func (yota *Client) GetTariffs() ([]Tariff, error) {
 	resp, err := yota.http.Get(urlDevices)
 	defer resp.Body.Close()
 
@@ -161,7 +161,7 @@ func parseTariff(step map[string]interface{}) Tariff {
 	return tariff
 }
 
-func (yota *Yota) getUid() (string, error) {
+func (yota *Client) getUid() (string, error) {
 	payload := url.Values{
 		"value": {yota.login},
 	}
@@ -191,7 +191,7 @@ func (yota *Yota) getUid() (string, error) {
 	return string(body[3:]), nil
 }
 
-func (yota *Yota) GetBalance() (int, error) {
+func (yota *Client) GetBalance() (int, error) {
 	resp, err := yota.http.Get(urlDevices)
 	defer resp.Body.Close()
 
@@ -213,7 +213,7 @@ func (yota *Yota) GetBalance() (int, error) {
 	return balance, nil
 }
 
-func (yota *Yota) ChangeTariff(tariff Tariff) error {
+func (yota *Client) ChangeTariff(tariff Tariff) error {
 	payload := url.Values{
 		"product":       {tariff.Product},
 		"offerCode":     {tariff.Code},

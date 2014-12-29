@@ -4,12 +4,14 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 type Client struct {
@@ -43,45 +45,47 @@ const (
 	urlChangeTariff = "https://my.yota.ru/selfcare/devices/changeOffer"
 )
 
-func NewClient(login, password string) *Client {
+func NewClient(login, password string, httpClient *http.Client) *Client {
 	cookies, _ := cookiejar.New(nil)
 
-	http := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-		Jar: cookies,
+	if httpClient == nil {
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+			Jar: cookies,
+		}
 	}
 
-	yota := &Client{
+	cli := &Client{
 		login:    login,
 		password: password,
-		http:     http,
+		http:     httpClient,
 	}
 
-	return yota
+	return cli
 }
 
-func (yota *Client) Login() error {
-	if yota.uid == "" {
-		uid, err := yota.getUid()
+func (cli *Client) Login() error {
+	if cli.uid == "" {
+		uid, err := cli.getUid()
 		if err != nil {
 			return err
 		}
 
-		yota.uid = uid
+		cli.uid = uid
 	}
 
 	payload := url.Values{
 		"goto":       {urlLoginSuccess},
 		"gotoOnFail": {urlLoginFail},
 		"org":        {"customer"},
-		"old-token":  {yota.login},
-		"IDToken2":   {yota.password},
-		"IDToken1":   {yota.uid},
+		"old-token":  {cli.login},
+		"IDToken2":   {cli.password},
+		"IDToken1":   {cli.uid},
 	}
 
-	resp, err := yota.http.PostForm(
+	resp, err := cli.http.PostForm(
 		"https://login.yota.ru/UI/Login",
 		payload,
 	)
@@ -99,8 +103,8 @@ func (yota *Client) Login() error {
 	return nil
 }
 
-func (yota *Client) GetTariffs() ([]Tariff, error) {
-	resp, err := yota.http.Get(urlDevices)
+func (cli *Client) GetTariffs() ([]Tariff, error) {
+	resp, err := cli.http.Get(urlDevices)
 	defer resp.Body.Close()
 
 	if err != nil {
@@ -108,23 +112,22 @@ func (yota *Client) GetTariffs() ([]Tariff, error) {
 	}
 
 	body, _ := ioutil.ReadAll(resp.Body)
-	matches := reTariffs.FindStringSubmatch(string(body[:]))
+	matches := reTariffs.FindSubmatch(body)
 	if len(matches) == 0 {
 		return nil, errors.New("could not find raw data")
 	}
 	rawData := matches[1]
 
-	decoded := map[string]interface{}{}
-	err = json.Unmarshal([]byte(rawData), &decoded)
+	decoded := map[string]map[string]interface{}{}
+	err = json.Unmarshal(rawData, &decoded)
 	if err != nil {
 		return nil, err
 	}
 
 	tariffs := []Tariff{}
 	for product, data := range decoded {
-		current := parseTariff(
-			data.(map[string]interface{})["currentProduct"].(map[string]interface{}))
-		steps := data.(map[string]interface{})["steps"].([]interface{})
+		current := parseTariff(data["currentProduct"].(map[string]interface{}))
+		steps := data["steps"].([]interface{})
 
 		for _, step := range steps {
 			tariff := parseTariff(step.(map[string]interface{}))
@@ -137,23 +140,25 @@ func (yota *Client) GetTariffs() ([]Tariff, error) {
 			tariffs = append(tariffs, tariff)
 		}
 
+		//yota sliders data is structured as {product: {tariffsData}}
+		//but all clients have only one product
 		break
 	}
 
 	return tariffs, nil
 }
 
-func parseTariff(step map[string]interface{}) Tariff {
+func parseTariff(rawData map[string]interface{}) Tariff {
 	tariff := Tariff{
-		Name:  step["name"].(string),
-		Code:  step["code"].(string),
+		Name: rawData["name"].(string),
+		Code: rawData["code"].(string),
 	}
 
-	amount, _ := strconv.ParseFloat(step["amountNumber"].(string), 64)
+	amount, _ := strconv.ParseFloat(rawData["amountNumber"].(string), 64)
 	tariff.Amount = amount
 
-	speed := step["speedNumber"].(string)
-	if speed == "<div class=\"max-value\">Макс.</div>" {
+	speed := rawData["speedNumber"].(string)
+	if strings.Contains(speed, "max-value") {
 		speed = "max"
 	}
 	tariff.Speed = speed
@@ -161,12 +166,12 @@ func parseTariff(step map[string]interface{}) Tariff {
 	return tariff
 }
 
-func (yota *Client) getUid() (string, error) {
+func (cli *Client) getUid() (string, error) {
 	payload := url.Values{
-		"value": {yota.login},
+		"value": {cli.login},
 	}
 
-	resp, err := yota.http.PostForm(
+	resp, err := cli.http.PostForm(
 		urlUidByMail,
 		payload,
 	)
@@ -184,15 +189,16 @@ func (yota *Client) getUid() (string, error) {
 	status := string(body[0:2])
 
 	if status != "ok" {
-		return "", errors.New("status is not ok")
+		return "", errors.New(
+			fmt.Sprintf("response is not ok: %s", string(body)))
 	}
 
 	//stupid parsing...
 	return string(body[3:]), nil
 }
 
-func (yota *Client) GetBalance() (int, error) {
-	resp, err := yota.http.Get(urlDevices)
+func (cli *Client) GetBalance() (int, error) {
+	resp, err := cli.http.Get(urlDevices)
 	defer resp.Body.Close()
 
 	if err != nil {
@@ -200,7 +206,7 @@ func (yota *Client) GetBalance() (int, error) {
 	}
 
 	body, _ := ioutil.ReadAll(resp.Body)
-	matches := reBalance.FindStringSubmatch(string(body[:]))
+	matches := reBalance.FindStringSubmatch(string(body))
 	if len(matches) == 0 {
 		return 0, errors.New("could not find balance data")
 	}
@@ -213,14 +219,14 @@ func (yota *Client) GetBalance() (int, error) {
 	return balance, nil
 }
 
-func (yota *Client) ChangeTariff(tariff Tariff) error {
+func (cli *Client) ChangeTariff(tariff Tariff) error {
 	payload := url.Values{
 		"product":       {tariff.Product},
 		"offerCode":     {tariff.Code},
 		"currentDevice": {"1"},
 	}
 
-	resp, err := yota.http.PostForm(
+	resp, err := cli.http.PostForm(
 		urlChangeTariff,
 		payload,
 	)

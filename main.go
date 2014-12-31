@@ -21,6 +21,8 @@ type Client struct {
 	http     *http.Client
 }
 
+type Tariffs []Tariff
+
 type Tariff struct {
 	Product string
 	Name    string
@@ -146,6 +148,9 @@ func (cli *Client) GetTariffs() ([]Tariff, error) {
 	}
 
 	return tariffs, nil
+}
+
+func (tariff *Tariff) Unmarshal() {
 }
 
 func parseTariff(rawData map[string]interface{}) Tariff {

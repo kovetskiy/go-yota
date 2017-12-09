@@ -175,11 +175,11 @@ func (cli *Client) getUid() (string, error) {
 		urlUidByMail,
 		payload,
 	)
-	defer resp.Body.Close()
-
 	if err != nil {
 		return "", err
 	}
+
+	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {

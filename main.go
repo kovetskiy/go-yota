@@ -47,12 +47,6 @@ const (
 	urlChangeTariff = "https://my.yota.ru/selfcare/devices/changeOffer"
 )
 
-func (tariff Tariff) String() string {
-	return fmt.Sprintf(
-		"Tariff{Product: %q, Name: %q, Amount: %.2f, Code: %q, Speed: %q, Active: %t}",
-		tariff.Product, tariff.Name, tariff.Amount, tariff.Code, tariff.Speed, tariff.Active)
-}
-
 func NewClient(login, password string, httpClient *http.Client) *Client {
 	cookies, _ := cookiejar.New(nil)
 

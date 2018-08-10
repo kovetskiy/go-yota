@@ -243,9 +243,6 @@ func (cli *Client) GetRemains() (string, error) {
 	}
 
 	remains := fmt.Sprintf("%s %s %s", matches[1], matches[2], matches[3])
-	if err != nil {
-		return "", err
-	}
 
 	return remains, nil
 }

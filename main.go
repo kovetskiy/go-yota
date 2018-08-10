@@ -34,7 +34,9 @@ var (
 	reTariffs = regexp.MustCompile(
 		`var sliderData = (.*);\n`)
 	reBalance = regexp.MustCompile(
-		`<dd id="balance-holder"><span>(\d+)</span>`)
+		`<dd id="balance-holder"><span>(\d*(,\d*)?)</span>\s([а-я]+\.)`)
+	reRemains = regexp.MustCompile(
+		`<div class="tarriff-info">\n\s+<div class="time">\n\s*\n\s*<strong>(\d+)</strong>\s*<span>([а-я]+)\&nbsp;([а-я]+)</span>`)
 )
 
 const (
@@ -44,6 +46,12 @@ const (
 	urlUidByMail    = "https://my.yota.ru/selfcare/login/getUidByMail"
 	urlChangeTariff = "https://my.yota.ru/selfcare/devices/changeOffer"
 )
+
+func (tariff Tariff) String() string {
+	return fmt.Sprintf(
+		"Tariff{Product: %q, Name: %q, Amount: %.2f, Code: %q, Speed: %q, Active: %t}",
+		tariff.Product, tariff.Name, tariff.Amount, tariff.Code, tariff.Speed, tariff.Active)
+}
 
 func NewClient(login, password string, httpClient *http.Client) *Client {
 	cookies, _ := cookiejar.New(nil)
@@ -197,26 +205,49 @@ func (cli *Client) getUid() (string, error) {
 	return string(body[3:]), nil
 }
 
-func (cli *Client) GetBalance() (int, error) {
+func (cli *Client) GetBalance() (balance float64, currency string, err error) {
 	resp, err := cli.http.Get(urlDevices)
 	defer resp.Body.Close()
 
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 
 	body, _ := ioutil.ReadAll(resp.Body)
 	matches := reBalance.FindStringSubmatch(string(body))
 	if len(matches) == 0 {
-		return 0, errors.New("could not find balance data")
+		return 0, "", errors.New("could not find balance data")
 	}
 
-	balance, err := strconv.Atoi(matches[1])
+	balance, err = strconv.ParseFloat(strings.Replace(matches[1], ",", ".", -1), 64)
+	currency = matches[3]
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 
-	return balance, nil
+	return balance, currency, nil
+}
+
+func (cli *Client) GetRemains() (string, error) {
+	resp, err := cli.http.Get(urlDevices)
+	defer resp.Body.Close()
+
+	if err != nil {
+		return "", err
+	}
+
+	body, _ := ioutil.ReadAll(resp.Body)
+	matches := reRemains.FindStringSubmatch(string(body))
+	if len(matches) == 0 {
+		return "", errors.New("could not find remains data")
+	}
+
+	remains := fmt.Sprintf("%s %s %s", matches[1], matches[2], matches[3])
+	if err != nil {
+		return "", err
+	}
+
+	return remains, nil
 }
 
 func (cli *Client) ChangeTariff(tariff Tariff) error {

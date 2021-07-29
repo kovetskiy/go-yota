@@ -181,3 +181,33 @@ type ChangeTariff struct {
 		Type string `json:"type"`
 	} `json:"resourceID"`
 }
+
+type PaymentsInfo struct {
+	Payments []Payment `json:"payments"`
+}
+type Payment struct {
+	DatePayment time.Time `json:"datePayment"`
+	Amount      int       `json:"amount"`
+	OfferCode   string    `json:"offerCode"`
+	OfferName   string    `json:"offerName"`
+	NameDevice  string    `json:"nameDevice"`
+	Iccid       string    `json:"iccid"`
+}
+
+type OperationHistory struct {
+	UserID        int64     `json:"userId"`
+	OperationType string    `json:"operationType"`
+	DepositType   string    `json:"depositType,omitempty"`
+	DepositSource string    `json:"depositSource,omitempty"`
+	ActualDate    time.Time `json:"actualDate"`
+	Amount        struct {
+		Amount       float64 `json:"amount"`
+		CurrencyCode string  `json:"currencyCode"`
+	} `json:"amount"`
+	WriteDownInitOperation string `json:"writeDownInitOperation,omitempty"`
+	WriteDownType          string `json:"writeDownType,omitempty"`
+	OfferCode              string `json:"offerCode,omitempty"`
+	OfferName              string `json:"offerName,omitempty"`
+	ResourceName           string `json:"resourceName,omitempty"`
+	Iccid                  string `json:"iccid,omitempty"`
+}

@@ -47,8 +47,11 @@ const (
 	urlGetBalance   = "https://my.yota.ru/wa/v1/finance/getBalance"
 	urlInfo         = "https://my.yota.ru/wa/v1/profile/info"
 	urlChangeTariff = "https://my.yota.ru/wa/v1/devices/changeOffer/change"
+	urlPayments     = "https://my.yota.ru/wa/v1/finance/future/payments"
+	urlOpHistory    = "https://my.yota.ru/wa/v1/finance/getOperationHistory"
 
 	basicAuthStr = "Basic bmV3X2xrX3Jlc3Q6cGFzc3dvcmQ="
+	dtLayout     = "2006-01-02T15:04:05.000Z"
 )
 
 func NewClient(login, password string, httpClient *http.Client) *Client {
@@ -328,4 +331,56 @@ func (cli *Client) ChangeOfferTo(code string) (err error) {
 	} else {
 		return errors.New("ErrChangeOffer code: " + jsonData["code"].(string))
 	}
+}
+
+func (cli *Client) GetPayments() (pi PaymentsInfo, err error) {
+	req, err := http.NewRequest(http.MethodGet, urlPayments, nil)
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Authorization", basicAuthStr)
+
+	now := time.Now()
+	endTs := now.AddDate(0, 1, 0)
+	q := req.URL.Query()
+	q.Add("startTs", now.Format(dtLayout))
+	q.Add("endTs", endTs.Format(dtLayout))
+	req.URL.RawQuery = q.Encode()
+
+	res, err := cli.httpClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	body, _ := ioutil.ReadAll(res.Body)
+	if err = json.Unmarshal(body, &pi); err != nil {
+		return
+	}
+	return
+}
+
+func (cli *Client) GetOperationHistory() (oh []OperationHistory, err error) {
+	req, err := http.NewRequest(http.MethodGet, urlOpHistory, nil)
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Authorization", basicAuthStr)
+
+	now := time.Now()
+	startTs := now.AddDate(0, -6, 0)
+	q := req.URL.Query()
+	q.Add("fromDate", startTs.Format(dtLayout))
+	q.Add("toDate", now.Format(dtLayout))
+	req.URL.RawQuery = q.Encode()
+
+	res, err := cli.httpClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	body, _ := ioutil.ReadAll(res.Body)
+	if err = json.Unmarshal(body, &oh); err != nil {
+		return
+	}
+	return
 }

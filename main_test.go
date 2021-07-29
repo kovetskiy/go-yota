@@ -48,6 +48,22 @@ func TestClient_GetRemains(t *testing.T) {
 	t.Logf("%+v", remains)
 }
 
+func TestClient_GetPayments(t *testing.T) {
+	payments, err := client.GetPayments()
+	if err != nil {
+		t.Error(err.Error())
+	}
+	t.Logf("%+v", payments)
+}
+
+func TestClient_GetOperationHistory(t *testing.T) {
+	oh, err := client.GetOperationHistory()
+	if err != nil {
+		t.Error(err.Error())
+	}
+	t.Logf("%+v", oh)
+}
+
 func getConfig() (zhash.Hash, error) {
 	var configData map[string]interface{}
 	home, err := homedir.Dir()

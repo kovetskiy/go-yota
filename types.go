@@ -13,8 +13,8 @@ type DevicesInfo struct {
 	CurrentResourceID       CurrentResourceID `json:"currentResourceId"`
 }
 type Price struct {
-	Amount       int    `json:"amount"`
-	CurrencyCode string `json:"currencyCode"`
+	Amount       float64 `json:"amount"`
+	CurrencyCode string  `json:"currencyCode"`
 }
 type Product struct {
 	ProductID           int       `json:"productId"`
@@ -50,27 +50,27 @@ type OfferingSpeed struct {
 	UnitOfMeasure string `json:"unitOfMeasure"`
 }
 type SpecialOffers struct {
-	DefaultSelectedPoint bool   `json:"defaultSelectedPoint"`
-	Position             int    `json:"position"`
-	Speed                string `json:"speed"`
-	SpeedType            string `json:"speedType"`
-	Code                 string `json:"code"`
-	SpecialOffer         bool   `json:"specialOffer"`
-	SpeedMaximum         bool   `json:"speedMaximum"`
-	TheShortestOffer     bool   `json:"theShortestOffer"`
-	Light                bool   `json:"light"`
-	OfferDescription     string `json:"offerDescription"`
-	Amount               int    `json:"amount"`
-	Period               int    `json:"period"`
-	PeriodString         string `json:"periodString"`
-	MoneyEnough          bool   `json:"moneyEnough"`
-	PayFromBalance       int    `json:"payFromBalance"`
-	PayFromCard          int    `json:"payFromCard"`
-	PayFromAll           int    `json:"payFromAll"`
-	Remain               int    `json:"remain"`
-	RemainString         string `json:"remainString"`
-	ReturnAmount         int    `json:"returnAmount"`
-	TestDrive            bool   `json:"testDrive"`
+	DefaultSelectedPoint bool    `json:"defaultSelectedPoint"`
+	Position             int     `json:"position"`
+	Speed                string  `json:"speed"`
+	SpeedType            string  `json:"speedType"`
+	Code                 string  `json:"code"`
+	SpecialOffer         bool    `json:"specialOffer"`
+	SpeedMaximum         bool    `json:"speedMaximum"`
+	TheShortestOffer     bool    `json:"theShortestOffer"`
+	Light                bool    `json:"light"`
+	OfferDescription     string  `json:"offerDescription"`
+	Amount               float64 `json:"amount"`
+	Period               int     `json:"period"`
+	PeriodString         string  `json:"periodString"`
+	MoneyEnough          bool    `json:"moneyEnough"`
+	PayFromBalance       int     `json:"payFromBalance"`
+	PayFromCard          int     `json:"payFromCard"`
+	PayFromAll           int     `json:"payFromAll"`
+	Remain               int     `json:"remain"`
+	RemainString         string  `json:"remainString"`
+	ReturnAmount         float64 `json:"returnAmount"`
+	TestDrive            bool    `json:"testDrive"`
 }
 type Steps struct {
 	DefaultSelectedPoint bool    `json:"defaultSelectedPoint"`
@@ -187,7 +187,7 @@ type PaymentsInfo struct {
 }
 type Payment struct {
 	DatePayment time.Time `json:"datePayment"`
-	Amount      int       `json:"amount"`
+	Amount      float64   `json:"amount"`
 	OfferCode   string    `json:"offerCode"`
 	OfferName   string    `json:"offerName"`
 	NameDevice  string    `json:"nameDevice"`

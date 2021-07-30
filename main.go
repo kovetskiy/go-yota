@@ -1,50 +1,57 @@
 package yota
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"regexp"
-	"strconv"
 	"strings"
+	"time"
 )
 
 type Client struct {
-	login    string
-	password string
-	uid      string
-	http     *http.Client
+	username     string
+	password     string
+	accessToken  string
+	refreshToken string
+	jwt          string
+	httpClient   *http.Client
 }
 
 type Tariff struct {
-	Product string
-	Name    string
-	Amount  float64
-	Code    string
-	Speed   string
-	Active  bool
+	Name      string
+	Amount    int
+	Code      string
+	Speed     string
+	SpeedType string
+	Active    bool
 }
 
-var (
-	reTariffs = regexp.MustCompile(
-		`var sliderData = (.*);\n`)
-	reBalance = regexp.MustCompile(
-		`<dd id="balance-holder"><span>(\d*(,\d*)?)</span>\s([а-я]+\.)`)
-	reRemains = regexp.MustCompile(
-		`<div class="tarriff-info">\n\s+<div class="time">\n\s*\n\s*<strong>(\d+)</strong>\s*<span>([а-я]+)\&nbsp;([а-я]+)</span>`)
-)
-
 const (
-	urlLoginSuccess = "https://my.yota.ru/devices"
-	urlLoginFail    = "https://my.yota.ru/selfcare/loginError"
-	urlDevices      = "https://my.yota.ru/devices"
-	urlUidByMail    = "https://my.yota.ru/selfcare/login/getUidByMail"
-	urlChangeTariff = "https://my.yota.ru/selfcare/devices/changeOffer"
+	hUserAgent       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.120 Safari/537.36"
+	hAccept          = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3"
+	hAcceptLang      = "ru-RU,en-US,en;q=0.9"
+	hContentTypeJson = "application/json"
+	hContentTypeForm = "application/x-www-form-urlencoded"
+
+	urlAccessToken  = "https://id.yota.ru/sso/oauth2/access_token?skipAutoLogin=true"
+	urlTokenInfo    = "https://my.yota.ru/wa/v1/auth/tokenInfo"
+	urlLoginSuccess = "https://my.yota.ru/wa/v1/auth/loginSuccess"
+	urlDevices      = "https://my.yota.ru/wa/v1/devices/devices"
+	urlStatusLegal  = "https://my.yota.ru/wa/v1/profile/statusLegal"
+	urlGetBalance   = "https://my.yota.ru/wa/v1/finance/getBalance"
+	urlInfo         = "https://my.yota.ru/wa/v1/profile/info"
+	urlChangeTariff = "https://my.yota.ru/wa/v1/devices/changeOffer/change"
+	urlPayments     = "https://my.yota.ru/wa/v1/finance/future/payments"
+	urlOpHistory    = "https://my.yota.ru/wa/v1/finance/getOperationHistory"
+
+	basicAuthStr = "Basic bmV3X2xrX3Jlc3Q6cGFzc3dvcmQ="
+	dtLayout     = "2006-01-02T15:04:05.000Z"
 )
 
 func NewClient(login, password string, httpClient *http.Client) *Client {
@@ -53,215 +60,346 @@ func NewClient(login, password string, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				MaxIdleConnsPerHost: 20,
+				TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
 			},
-			Jar: cookies,
+			Jar:     cookies,
+			Timeout: 1 * time.Minute,
 		}
 	}
 
 	cli := &Client{
-		login:    login,
-		password: password,
-		http:     httpClient,
+		username:   login,
+		password:   password,
+		httpClient: httpClient,
 	}
 
 	return cli
 }
 
-func (cli *Client) Login() error {
-	if cli.uid == "" {
-		uid, err := cli.getUid()
-		if err != nil {
-			return err
-		}
-
-		cli.uid = uid
-	}
-
-	payload := url.Values{
-		"goto":       {urlLoginSuccess},
-		"gotoOnFail": {urlLoginFail},
-		"org":        {"customer"},
-		"old-token":  {cli.login},
-		"IDToken2":   {cli.password},
-		"IDToken1":   {cli.uid},
-	}
-
-	resp, err := cli.http.PostForm(
-		"https://login.yota.ru/UI/Login",
-		payload,
-	)
-	defer resp.Body.Close()
-
+func (cli *Client) getDevices() DevicesInfo {
+	req, err := http.NewRequest(http.MethodGet, urlDevices, nil)
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Authorization", basicAuthStr)
+	res, err := cli.httpClient.Do(req)
 	if err != nil {
-		return err
+		log.Printf("req do err: %s", err)
+	}
+	defer res.Body.Close()
+
+	body, _ := ioutil.ReadAll(res.Body)
+	var jsonData map[string]interface{}
+	json.Unmarshal([]byte(body), &jsonData)
+
+	var devicesInfo DevicesInfo
+	err = json.Unmarshal(body, &devicesInfo)
+	if err != nil {
+		log.Println(err)
 	}
 
-	redirected := resp.Request.URL.String()
-	if redirected != urlLoginSuccess {
-		return errors.New("redirected to not success url")
+	return devicesInfo
+}
+
+func (cli *Client) getTokenInfo() (err error) {
+	req, err := http.NewRequest(http.MethodPost, urlTokenInfo, nil)
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	res, err := cli.httpClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+	return
+}
+
+func (cli *Client) getExecution() (execution string, err error) {
+	data := url.Values{
+		"client_id":     {"yota_mya"},
+		"client_secret": {"password"},
+		"realm":         {"/customer"},
+		"service":       {"dispatcher"},
+		"grant_type":    {"urn:roox:params:oauth:grant-type:m2m"},
+		"response_type": {"token cookie"},
+	}
+
+	req, err := http.NewRequest(http.MethodPost, urlAccessToken, strings.NewReader(data.Encode()))
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Content-Type", hContentTypeForm)
+	res, err := cli.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	body, _ := ioutil.ReadAll(res.Body)
+	var jsonData map[string]interface{}
+	json.Unmarshal([]byte(body), &jsonData)
+	execution = jsonData["execution"].(string)
+	return
+}
+
+func (cli *Client) getAccessToken(execution string) (err error) {
+	data := url.Values{
+		"execution":     {execution},
+		"username":      {cli.username},
+		"password":      {cli.password},
+		"_eventId":      {"next"},
+		"response_type": {"token cookie"},
+		"client_id":     {"yota_mya"},
+		"client_secret": {"password"},
+		"service":       {"dispatcher"},
+		"grant_type":    {"urn:roox:params:oauth:grant-type:m2m"},
+		"realm":         {"/customer"},
+	}
+
+	req, err := http.NewRequest(http.MethodPost, urlAccessToken, strings.NewReader(data.Encode()))
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Content-Type", hContentTypeForm)
+	res, err := cli.httpClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	body, _ := ioutil.ReadAll(res.Body)
+	var jsonData map[string]interface{}
+	json.Unmarshal([]byte(body), &jsonData)
+	cli.accessToken = jsonData["access_token"].(string)
+	cli.refreshToken = jsonData["refresh_token"].(string)
+	cli.jwt = jsonData["JWTToken"].(string)
+
+	return
+}
+
+func (cli *Client) getLoginSuccess() (err error) {
+	req, err := http.NewRequest(http.MethodGet, urlLoginSuccess, nil)
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Authorization", basicAuthStr)
+	res, err := cli.httpClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+	body, _ := ioutil.ReadAll(res.Body)
+	var jsonData map[string]interface{}
+	json.Unmarshal([]byte(body), &jsonData)
+	redirect := jsonData["redirect"].(string)
+	if redirect == "/devices" {
+		return
+	}
+	return errors.New("ErrLoginFail")
+}
+
+func (cli *Client) getStatusLegal() (err error) {
+	req, err := http.NewRequest(http.MethodGet, urlStatusLegal, nil)
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Authorization", basicAuthStr)
+	res, err := cli.httpClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+	body, _ := ioutil.ReadAll(res.Body)
+	var jsonData map[string]interface{}
+	json.Unmarshal([]byte(body), &jsonData)
+	legalize := jsonData["legalize"].(bool)
+	if legalize {
+		return
+	}
+	return errors.New("ErrNotLegalized")
+}
+
+func (cli *Client) Login() (err error) {
+	err = cli.getTokenInfo()
+	if err != nil {
+		return
+	}
+	execution, err := cli.getExecution()
+	if err != nil {
+		return
+	}
+	err = cli.getAccessToken(execution)
+	if err != nil {
+		return
+	}
+	err = cli.getLoginSuccess()
+	if err != nil {
+		return
+	}
+	err = cli.getStatusLegal()
+	if err != nil {
+		return
+	}
+
+	err = cli.getTokenInfo()
+	if err != nil {
+		return
 	}
 
 	return nil
 }
 
-func (cli *Client) GetTariffs() ([]Tariff, error) {
-	resp, err := cli.http.Get(urlDevices)
-	defer resp.Body.Close()
-
-	if err != nil {
-		return nil, err
-	}
-
-	body, _ := ioutil.ReadAll(resp.Body)
-	matches := reTariffs.FindSubmatch(body)
-	if len(matches) == 0 {
-		return nil, errors.New("could not find raw data")
-	}
-	rawData := matches[1]
-
-	decoded := map[string]map[string]interface{}{}
-	err = json.Unmarshal(rawData, &decoded)
-	if err != nil {
-		return nil, err
-	}
-
-	tariffs := []Tariff{}
-	for product, data := range decoded {
-		current := parseTariff(data["currentProduct"].(map[string]interface{}))
-		steps := data["steps"].([]interface{})
-
-		for _, step := range steps {
-			tariff := parseTariff(step.(map[string]interface{}))
-			if tariff.Code == current.Code {
-				tariff.Active = true
-			}
-
-			tariff.Product = product
-
-			tariffs = append(tariffs, tariff)
+func (cli *Client) GetTariffs() (tariffs []Tariff, err error) {
+	devicesInfo := cli.getDevices()
+	current := devicesInfo.Devices[0].Slider.CurrentProduct
+	for _, s := range devicesInfo.Devices[0].Slider.Steps {
+		var t Tariff
+		t.Code = s.Code
+		if s.Code == current.Code {
+			t.Active = true
 		}
+		if strings.Contains(s.Speed, "maxvalue") {
+			t.Speed = "max"
+		} else {
+			t.Speed = s.Speed
+		}
+		t.SpeedType = s.SpeedType
+		t.Amount = s.Amount
+		t.Name = s.OfferDescription
 
-		//yota sliders data is structured as {product: {tariffsData}}
-		//but all clients have only one product
-		break
+		tariffs = append(tariffs, t)
 	}
-
-	return tariffs, nil
+	return
 }
 
-func parseTariff(rawData map[string]interface{}) Tariff {
-	tariff := Tariff{
-		Name: rawData["name"].(string),
-		Code: rawData["code"].(string),
+func (cli *Client) GetBalance() (balance Balance, err error) {
+	req, err := http.NewRequest(http.MethodGet, urlGetBalance, nil)
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Authorization", basicAuthStr)
+	res, err := cli.httpClient.Do(req)
+	if err != nil {
+		return
 	}
+	defer res.Body.Close()
 
-	amount, _ := strconv.ParseFloat(rawData["amountNumber"].(string), 64)
-	tariff.Amount = amount
-
-	speed := rawData["speedNumber"].(string)
-	if strings.Contains(speed, "max-value") {
-		speed = "max"
+	body, _ := ioutil.ReadAll(res.Body)
+	err = json.Unmarshal(body, &balance)
+	if err != nil {
+		return
 	}
-	tariff.Speed = speed
-
-	return tariff
+	return
 }
 
-func (cli *Client) getUid() (string, error) {
-	payload := url.Values{
-		"value": {cli.login},
-	}
-
-	resp, err := cli.http.PostForm(
-		urlUidByMail,
-		payload,
-	)
+func (cli *Client) GetUserInfo() (ui UserInfo, err error) {
+	req, err := http.NewRequest(http.MethodGet, urlInfo, nil)
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Authorization", basicAuthStr)
+	res, err := cli.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return
 	}
+	defer res.Body.Close()
 
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
+	body, _ := ioutil.ReadAll(res.Body)
+	err = json.Unmarshal(body, &ui)
 	if err != nil {
-		return "", err
+		return
 	}
-
-	status := string(body[0:2])
-
-	if status != "ok" {
-		return "", errors.New(
-			fmt.Sprintf("response is not ok: %s", string(body)))
-	}
-
-	//stupid parsing...
-	return string(body[3:]), nil
+	return
 }
 
-func (cli *Client) GetBalance() (balance float64, currency string, err error) {
-	resp, err := cli.http.Get(urlDevices)
-	defer resp.Body.Close()
-
-	if err != nil {
-		return 0, "", err
-	}
-
-	body, _ := ioutil.ReadAll(resp.Body)
-	matches := reBalance.FindStringSubmatch(string(body))
-	if len(matches) == 0 {
-		return 0, "", errors.New("could not find balance data")
-	}
-
-	balance, err = strconv.ParseFloat(strings.Replace(matches[1], ",", ".", -1), 64)
-	currency = matches[3]
-	if err != nil {
-		return 0, "", err
-	}
-
-	return balance, currency, nil
+func (cli *Client) GetCurrentInfo() (ci CurrentInfo, err error) {
+	devicesInfo := cli.getDevices()
+	d := devicesInfo.Devices[0]
+	ci.BeginDate = d.Product.BeginDate
+	ci.EndDate = d.Product.EndDate
+	ci.Price.Amount = d.Product.Price.Amount
+	ci.Price.CurrencyCode = d.Product.Price.CurrencyCode
+	ci.Speed.SpeedValue = d.OfferingSpeed.SpeedValue
+	ci.Speed.UnitOfMeasure = d.OfferingSpeed.UnitOfMeasure
+	return
 }
 
-func (cli *Client) GetRemains() (string, error) {
-	resp, err := cli.http.Get(urlDevices)
-	defer resp.Body.Close()
-
+func (cli *Client) ChangeOfferTo(code string) (err error) {
+	devicesInfo := cli.getDevices()
+	payload := new(ChangeTariff)
+	payload.CurrentProductID = devicesInfo.Devices[0].Product.ProductID
+	payload.DisablingAutoprolong = false
+	payload.OfferCode = code
+	payload.ResourceID.Key = devicesInfo.Devices[0].PhysicalResource.ResourceID.Key
+	payload.ResourceID.Type = devicesInfo.Devices[0].PhysicalResource.ResourceID.Type
+	b, err := json.Marshal(payload)
 	if err != nil {
-		return "", err
+		return
 	}
 
-	body, _ := ioutil.ReadAll(resp.Body)
-	matches := reRemains.FindStringSubmatch(string(body))
-	if len(matches) == 0 {
-		return "", errors.New("could not find remains data")
+	req, err := http.NewRequest(http.MethodPost, urlChangeTariff, bytes.NewReader(b))
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Authorization", basicAuthStr)
+	req.Header.Set("Content-Type", hContentTypeJson)
+	res, err := cli.httpClient.Do(req)
+	if err != nil {
+		return
 	}
+	defer res.Body.Close()
 
-	remains := fmt.Sprintf("%s %s %s", matches[1], matches[2], matches[3])
-
-	return remains, nil
+	body, _ := ioutil.ReadAll(res.Body)
+	var jsonData map[string]interface{}
+	json.Unmarshal([]byte(body), &jsonData)
+	message := jsonData["message"].(string)
+	if message == "OK" {
+		return
+	} else {
+		return errors.New("ErrChangeOffer code: " + jsonData["code"].(string))
+	}
 }
 
-func (cli *Client) ChangeTariff(tariff Tariff) error {
-	payload := url.Values{
-		"product":       {tariff.Product},
-		"offerCode":     {tariff.Code},
-		"currentDevice": {"1"},
-	}
+func (cli *Client) GetPayments() (pi PaymentsInfo, err error) {
+	req, err := http.NewRequest(http.MethodGet, urlPayments, nil)
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Authorization", basicAuthStr)
 
-	resp, err := cli.http.PostForm(
-		urlChangeTariff,
-		payload,
-	)
-	defer resp.Body.Close()
+	now := time.Now()
+	endTs := now.AddDate(0, 1, 0)
+	q := req.URL.Query()
+	q.Add("startTs", now.Format(dtLayout))
+	q.Add("endTs", endTs.Format(dtLayout))
+	req.URL.RawQuery = q.Encode()
 
+	res, err := cli.httpClient.Do(req)
 	if err != nil {
-		return err
+		return
 	}
+	defer res.Body.Close()
 
-	_, err = ioutil.ReadAll(resp.Body)
+	body, _ := ioutil.ReadAll(res.Body)
+	if err = json.Unmarshal(body, &pi); err != nil {
+		return
+	}
+	return
+}
+
+func (cli *Client) GetOperationHistory() (oh []OperationHistory, err error) {
+	req, err := http.NewRequest(http.MethodGet, urlOpHistory, nil)
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Authorization", basicAuthStr)
+
+	now := time.Now()
+	startTs := now.AddDate(0, -6, 0)
+	q := req.URL.Query()
+	q.Add("fromDate", startTs.Format(dtLayout))
+	q.Add("toDate", now.Format(dtLayout))
+	req.URL.RawQuery = q.Encode()
+
+	res, err := cli.httpClient.Do(req)
 	if err != nil {
-		return err
+		return
 	}
+	defer res.Body.Close()
 
-	return nil
+	body, _ := ioutil.ReadAll(res.Body)
+	if err = json.Unmarshal(body, &oh); err != nil {
+		return
+	}
+	return
 }

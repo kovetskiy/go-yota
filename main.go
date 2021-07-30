@@ -286,6 +286,25 @@ func (cli *Client) GetBalance() (balance Balance, err error) {
 	return
 }
 
+func (cli *Client) GetUserInfo() (ui UserInfo, err error) {
+	req, err := http.NewRequest(http.MethodGet, urlInfo, nil)
+	req.Header.Add("User-Agent", hUserAgent)
+	req.Header.Set("Accept", hContentTypeJson)
+	req.Header.Set("Authorization", basicAuthStr)
+	res, err := cli.httpClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	body, _ := ioutil.ReadAll(res.Body)
+	err = json.Unmarshal(body, &ui)
+	if err != nil {
+		return
+	}
+	return
+}
+
 func (cli *Client) GetCurrentInfo() (ci CurrentInfo, err error) {
 	devicesInfo := cli.getDevices()
 	d := devicesInfo.Devices[0]

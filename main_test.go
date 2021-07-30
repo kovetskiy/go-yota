@@ -48,6 +48,14 @@ func TestClient_GetRemains(t *testing.T) {
 	t.Logf("%+v", remains)
 }
 
+func TestClient_GetUserInfo(t *testing.T) {
+	u, err := client.GetUserInfo()
+	if err != nil {
+		t.Error(err.Error())
+	}
+	t.Logf("%+v", u)
+}
+
 func TestClient_GetPayments(t *testing.T) {
 	payments, err := client.GetPayments()
 	if err != nil {
